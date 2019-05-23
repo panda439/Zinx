@@ -29,7 +29,7 @@ func main() {
 			fmt.Println("read buf error")
 			return
 		}
-		fmt.Printf("servar call back:%s,cnt=%d\n",buf[:cnt],cnt)
+		fmt.Printf("servar call back:%s",buf[:cnt])
 		time.Sleep(1 *time.Second)
 
 

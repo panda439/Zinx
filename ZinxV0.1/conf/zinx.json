@@ -1,0 +1,6 @@
+{
+  "Host":"0.0.0.0",
+  "Port":8999,
+  "Name":"My Zinx App",
+  "MaxPackageSize":4096
+}
