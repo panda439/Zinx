@@ -1,6 +1,8 @@
 package ziface
 
-import "net"
+import (
+	"net"
+)
 
 type IConnection interface {
 	//启动链接

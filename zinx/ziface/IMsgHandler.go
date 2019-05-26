@@ -10,5 +10,11 @@ type IMsgHandle interface {
 	DoMsgHandler(request IRequest)
 
 
+	//启动Worker工作池
+	StartWorkerPool()
+	//将消息添加到worker工作池中
+	SendMsgToTaskQueue(request IRequest)
+
+
 }
 

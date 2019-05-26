@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"io"
 	"errors"
+	"zinx/config"
 )
 
 //具体的TCP链接模块
 type Connection struct {
+	//当前链接属于哪个sever
+	server ziface.IServer
+
 	//当前链接的原生套接字
 	Conn *net.TCPConn
 
@@ -25,22 +29,67 @@ type Connection struct {
 	MsgHandler ziface.IMsgHandle
 
 
+	//添加一个Reader和Writer通信的Channel
+	msgChan chan []byte
+
+	//创建一个Channel 用来Reader通知Writer conn已经关闭，需要推出的消息
+	writerExitChan chan bool
+
+
+
 }
 
-func NewConnection(conn *net.TCPConn,connID uint32,handler ziface.IMsgHandle) ziface.IConnection {
+func NewConnection(server ziface.IServer,conn *net.TCPConn,connID uint32,handler ziface.IMsgHandle) ziface.IConnection {
 
-	return &Connection{
+	 c :=  &Connection{
+		server:server,
 		Conn:conn,
 		ConnID:connID,
 		MsgHandler:handler,
 		IsClosed:false,
+		msgChan:make(chan []byte),
+		writerExitChan:make(chan bool),
 	}
+	//当已经成功创建一个链接的时候，添加到链接管理器中
+	c.server.GetConnMgr().Add(c)
+
+	return c
+
+
+
 }
+func (c *Connection) StartWriter() {
+	fmt.Println("【Writer Goroutine is Started】")
+	defer fmt.Println("【Writer Goroutine is Stop】")
+
+	//IO多路复用
+	for {
+		select {
+		case data :=<-c.msgChan:
+			//有数据需要写给客户端
+			if _ ,err := c.Conn.Write(data);err!=nil{
+				fmt.Println("Send data error ",err)
+				return
+			}
+		case <-c.writerExitChan:
+			return
+		}
+
+
+	}
+
+}
+
+
+
+
 
 //针对链接读业务的方法
 func (c *Connection) StartReader() {
 	//从对端读数据
-	fmt.Println("Reader go is startin....")
+	fmt.Println("【Reader go is startin....】")
+	defer 	fmt.Println("【Reader go is stop....】")
+
 	defer fmt.Println("connID = ", c.ConnID, "Reader is exit, remote addr is = ", c.GetRemoteAddr().String())
 
 	defer c.Stop()
@@ -87,7 +136,13 @@ func (c *Connection) StartReader() {
 		req := NewRequest(c,msg)
 
 		//调用用户传递进来的业务 模版 设计模式
-		go c.MsgHandler.DoMsgHandler(req)
+		//将req交给worker工作池来处理
+		if config.GlobalObject.WorkerPoolSize > 0 {
+			c.MsgHandler.SendMsgToTaskQueue(req)
+		} else {
+			go c.MsgHandler.DoMsgHandler(req)
+		}
+
 
 
 
@@ -108,30 +163,38 @@ func (c *Connection) StartReader() {
 //启动链接
 func (c *Connection)Start(){
 	fmt.Println("Conn Start()...id=",c.ConnID)
+
+
 	//先进行读业务
 	go c.StartReader()
 	//进行写业务
+	go c.StartWriter()
 
-
+	c.server.CallOnConnStart(c)
 
 
 }
 //停止链接
 func (c *Connection)Stop(){
 	fmt.Println("c.Stop()...ConnId =",c.ConnID)
+
+	c.server.CallOnConnStop(c)
 	//回收工作
 	if c.IsClosed == true {
 		return
 	}
+	c.IsClosed = true
+	c.writerExitChan<-true
 
 	//关闭原生套接字
 	_ = c.Conn.Close()
-	c.IsClosed = true
+
+	//
+	c.server.GetConnMgr().Remove(c.ConnID)
 
 
-
-
-
+	close(c.writerExitChan)
+	close(c.msgChan)
 
 }
 //获取链接ID
@@ -163,10 +226,8 @@ func (c *Connection)Send(msgId uint32,msgData []byte ) error{
 		return err
 	}
 
+	//将要发送的打包好的二进制数发送channel让write
+	c.msgChan <- binaryMsg
 
-	if _,err := c.Conn.Write(binaryMsg);err!=nil{
-		fmt.Println("send buf error")
-		return err
-	}
 	return nil
 }

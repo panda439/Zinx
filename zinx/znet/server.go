@@ -19,6 +19,17 @@ type Server struct {
 
 	//路由属性
 	MsgHandler ziface.IMsgHandle
+
+
+	//链接管理模块
+	connMgr ziface.IConnManager
+
+	//该server创建链接之后自动调用Hook函数
+	OnConnStart func(conn ziface.IConnection)
+
+	//该server销毁链接之前自动调用Hook函数
+	OnConnStop func(conn ziface.IConnection)
+
 }
 
 //定义一个具体的回显业务 针对handlefunc
@@ -46,6 +57,7 @@ func NewServer(name string) ziface.IServer {
 		IP:        config.GlobalObject.Host,
 		Port:      config.GlobalObject.Port,
 		MsgHandler:NewMsgHandler(),
+		connMgr:NewConnManager(),
 	}
 
 	return s
@@ -59,6 +71,8 @@ func (s *Server) Start() {
 
 	fmt.Printf("[start] Sever Linstenner at IP:%s,Port:%d,is starting \n", s.IP, s.Port)
 
+	//启动工作池
+	s.MsgHandler.StartWorkerPool()
 
 	//创建套接字：得到一个TCP的addr
 	addr, err := net.ResolveTCPAddr(s.IPVersion, fmt.Sprintf("%s:%d", s.IP, s.Port))
@@ -88,8 +102,14 @@ func (s *Server) Start() {
 				continue
 			}
 
+			if s.connMgr.Len() >= config.GlobalObject.MaxConn {
+				fmt.Println("---> Too many Connection MAxConn = ", config.GlobalObject.MaxConn)
+				conn.Close()
+				continue
+			}
+
 			//创建一个Connection对象
-			dealConn := NewConnection(conn,cid,s.MsgHandler)
+			dealConn := NewConnection(s,conn,cid,s.MsgHandler)
 			cid++
 
 			go dealConn.Start()
@@ -108,6 +128,8 @@ func (s *Server) Start() {
 
 //停止服务器
 func (s *Server) Stop() {
+	//服务器应清空全部链接
+	s.connMgr.CleanConn()
 
 }
 
@@ -123,4 +145,38 @@ func (s *Server) Serve() {
 
 func (s *Server) AddRouter(msgID uint32,router ziface.IRouter)  {
 	s.MsgHandler.AddRouter(msgID ,router )
+	fmt.Println("Add Router SUCC!! msgID = ", msgID)
+}
+
+func (s *Server)GetConnMgr() ziface.IConnManager {
+	return s.connMgr
+}
+
+
+//该server创建链接之后自动调用Hook函数
+func (s *Server)AddOnConnStart (hookFunc func(conn ziface.IConnection)){
+	s.OnConnStart = hookFunc
+}
+
+//该server销毁链接之前自动调用Hook函数
+func (s *Server)AddOnConnStop (hookFunc func(conn ziface.IConnection)){
+	s.OnConnStop = hookFunc
+}
+
+//调用
+func (s *Server)CallOnConnStart(conn ziface.IConnection)  {
+	if s.OnConnStart != nil {
+		fmt.Println("---> Call OnConnStart()...")
+		s.OnConnStart(conn)
+	}
+
+}
+
+//调用
+func (s *Server)CallOnConnStop(conn ziface.IConnection)  {
+	if s.OnConnStop != nil {
+		fmt.Println("---> Call OnConnStop()...")
+		s.OnConnStop(conn)
+	}
+
 }

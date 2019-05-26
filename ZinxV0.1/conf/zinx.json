@@ -2,5 +2,8 @@
   "Host":"0.0.0.0",
   "Port":8999,
   "Name":"My Zinx App",
-  "MaxPackageSize":4096
+  "MaxPackageSize":4096,
+  "WorkerPoolSize":10,
+  "MaxWorkerTaskLen":4096,
+  "MaxConn":3
 }
